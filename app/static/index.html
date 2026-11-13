@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Document RAG</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#6b7280;--line:#e3e6ec;--accent:#2f6fed;--bot:#eef1f6;--err:#c2392b}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2030;--text:#e8ebf2;--muted:#98a1b3;--line:#2a3044;--accent:#4f83f0;--bot:#252b3d;--err:#ff8a7a}}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);font-weight:600}
+main{flex:1;min-height:0;display:grid;grid-template-columns:290px 1fr;gap:16px;padding:16px}
+@media(max-width:760px){main{grid-template-columns:1fr;grid-template-rows:auto 1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+h2{margin:0 0 10px;font-size:14px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+#drop{display:block;text-align:center;padding:26px 12px;border:2px dashed var(--line);border-radius:10px;cursor:pointer;color:var(--muted)}
+#drop.over,#drop:hover{border-color:var(--accent);color:var(--accent)}
+#drop b{display:block;color:var(--text);margin-bottom:4px}
+#status{margin-top:12px;font-size:13px;color:var(--muted);white-space:pre-wrap}
+#status.err{color:var(--err)}
+#chat{display:flex;flex-direction:column;min-height:0}
+#log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-bottom:8px}
+.msg{max-width:85%;padding:10px 14px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word}
+.user{align-self:flex-end;background:var(--accent);color:#fff}
+.bot{align-self:flex-start;background:var(--bot)}
+.bot.err{color:var(--err)}
+details{margin-top:8px;font-size:13px;color:var(--muted)}
+summary{cursor:pointer}
+.src{margin-top:6px;padding:8px;border-left:3px solid var(--line)}
+.src b{color:var(--text)}
+.hint{margin:auto;text-align:center;color:var(--muted)}
+.hint button{margin-top:8px;background:none;border:1px solid var(--line);color:var(--accent);border-radius:20px;padding:6px 14px;cursor:pointer;font:inherit}
+form{display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+textarea{flex:1;resize:none;height:44px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+#send{padding:0 20px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+#send:disabled{opacity:.5;cursor:default}
+</style></head>
+<body>
+<header>RAG</header>
+<main>
+  <section class="card">
+    <h2>1. Add documents</h2>
+    <label id="drop" for="file"><b>Click or drop files here</b>PDF, TXT or MD</label>
+    <input id="file" type="file" multiple accept=".pdf,.txt,.md" hidden>
+    <div id="status"></div>
+  </section>
+  <section class="card" id="chat">
+    <h2>2. Ask a question</h2>
+    <div id="log">
+      <div class="hint" id="hint">Upload a document, then ask about it.<br>
+        <button type="button" id="ex">How many leaves does an intern get?</button></div>
+    </div>
+    <form id="form">
+      <textarea id="q" placeholder="Ask about your documents (Enter to send)" maxlength="1000"></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const log = $("#log"), status = $("#status"), q = $("#q"), send = $("#send");
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  let body = null;
+  try { body = await r.json(); } catch (e) {}
+  if (!r.ok) {
+    const d = body && body.detail;
+    throw new Error(typeof d === "string" ? d : "Request failed (" + r.status + ")");
+  }
+  return body;
+}
+function setStatus(text, isErr) { status.textContent = text; status.className = isErr ? "err" : ""; }
+function addMsg(text, cls) {
+  const hint = $("#hint"); if (hint) hint.remove();
+  const el = document.createElement("div");
+  el.className = "msg " + cls; el.textContent = text;
+  log.appendChild(el); log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+async function upload(files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  setStatus("Indexing " + files.length + " file(s)... this can take a few seconds.");
+  try {
+    const d = await api("/ingest", { method: "POST", body: fd });
+    setStatus(Object.entries(d.chunks_indexed).map(([n, c]) =>
+      c ? "✓ " + n + ": " + c + " chunks" : "! " + n + ": no text found (scanned PDF?)").join("\n"));
+  } catch (e) { setStatus(e.message, true); }
+}
+$("#file").addEventListener("change", e => { upload([...e.target.files]); e.target.value = ""; });
+const drop = $("#drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => upload([...e.dataTransfer.files]));
+
+async function ask() {
+  const question = q.value.trim();
+  if (!question) return;
+  q.value = ""; send.disabled = true;
+  addMsg(question, "user");
+  const bot = addMsg("Thinking...", "bot");
+  try {
+    const d = await api("/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+    bot.textContent = d.answer;
+    if (d.sources.length) {
+      const det = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = "Sources (" + d.sources.length + ")";
+      det.appendChild(sum);
+      d.sources.forEach(s => {
+        const div = document.createElement("div"); div.className = "src";
+        const b = document.createElement("b");
+        b.textContent = s.source + (s.page ? " (page " + s.page + ")" : "");
+        div.appendChild(b); div.appendChild(document.createElement("br"));
+        div.appendChild(document.createTextNode(s.text.length > 300 ? s.text.slice(0, 300) + "..." : s.text));
+        det.appendChild(div);
+      });
+      bot.appendChild(det);
+    }
+  } catch (e) { bot.textContent = e.message; bot.classList.add("err"); }
+  send.disabled = false; log.scrollTop = log.scrollHeight; q.focus();
+}
+$("#form").addEventListener("submit", e => { e.preventDefault(); ask(); });
+q.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
+$("#ex").addEventListener("click", () => { q.value = "How many leaves does an intern get?"; ask(); });
+</script>
+</body></html>

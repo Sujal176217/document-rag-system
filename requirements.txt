@@ -1,17 +1,20 @@
-# --- RAG / LangChain ---
+# --- RAG / LangChain core ---
 langchain-core>=0.3
 langchain-text-splitters>=0.3
 langchain-chroma>=0.2
-langchain-openai>=0.3      # API-based embeddings
-langchain-anthropic>=0.3   # Claude as the LLM
 pypdf>=4.0
+
+# --- AI providers (install only the ones you use) ---
+langchain-google-genai>=2.1    # Google Gemini (default)
+langchain-openai>=0.3          # OpenAI (optional)
+langchain-anthropic>=0.3       # Claude (optional)
 
 # --- API ---
 fastapi>=0.115
 uvicorn[standard]>=0.30
-python-multipart>=0.0.9    # needed for file upload
+python-multipart>=0.0.9        # needed for file upload
 
 # --- Misc / testing ---
 python-dotenv>=1.0
 pytest>=8.0
-httpx>=0.27                # used by FastAPI's TestClient
+httpx>=0.27                    # used by FastAPI's TestClient
